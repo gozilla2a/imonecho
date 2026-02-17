@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.2
+// @version      1.3.3
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -19,6 +19,7 @@
 // @connect      api.openai.com
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
+// @connect      raw.githubusercontent.com
 // ==/UserScript==
 
 (function () {
@@ -54,7 +55,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.2';
+    return '1.3.3';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
