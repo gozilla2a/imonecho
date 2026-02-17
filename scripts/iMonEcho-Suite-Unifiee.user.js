@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -46,6 +46,16 @@
   const DRIVE_POLL_MS = 7000;
   const DRIVE_PUSH_DEBOUNCE_MS = 900;
   const USE_LEGACY_SHARED_CHANNELS = false;
+  const SCRIPT_META_URL = 'https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.meta.js';
+  const SCRIPT_DOWNLOAD_URL = 'https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.user.js';
+  const LOCAL_SCRIPT_VERSION = (() => {
+    try {
+      if (typeof GM_info !== 'undefined' && GM_info && GM_info.script && GM_info.script.version) {
+        return String(GM_info.script.version);
+      }
+    } catch (e) {}
+    return '1.3.2';
+  })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
   const DRIVE_BILLING_URL = 'https://script.google.com/macros/s/AKfycbxfbeQnGoi-0nVQbbX9LQIs2IdQEImDSKaGdOqQJQgSki6ciQP2OBMTOaX8L5repPM5xg/exec';
@@ -221,6 +231,101 @@
         reject(e);
       }
     });
+  }
+
+  function gmRequestText({ method, url, data, headers }) {
+    return new Promise((resolve, reject) => {
+      try {
+        GM_xmlhttpRequest({
+          method,
+          url,
+          data,
+          headers: headers || {},
+          timeout: 20000,
+          onload: (r) => resolve(String(r.responseText || '')),
+          onerror: () => reject(new Error('Erreur reseau MAJ')),
+          ontimeout: () => reject(new Error('Timeout MAJ'))
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function parseVersionTuple(v) {
+    return String(v || '0').split('.').map((x) => parseInt(x, 10) || 0);
+  }
+
+  function compareVersion(a, b) {
+    const pa = parseVersionTuple(a);
+    const pb = parseVersionTuple(b);
+    const max = Math.max(pa.length, pb.length);
+    for (let i = 0; i < max; i++) {
+      const da = pa[i] || 0;
+      const db = pb[i] || 0;
+      if (da > db) return 1;
+      if (da < db) return -1;
+    }
+    return 0;
+  }
+
+  function parseUpdateMeta(text) {
+    const t = String(text || '');
+    const mVer = t.match(/@version\s+([^\s]+)/);
+    const mDl = t.match(/@downloadURL\s+([^\s]+)/);
+    return {
+      version: (mVer && mVer[1]) ? String(mVer[1]).trim() : '0',
+      downloadURL: (mDl && mDl[1]) ? String(mDl[1]).trim() : SCRIPT_DOWNLOAD_URL
+    };
+  }
+
+  function setUpdateWidgetState(msg, btnLabel, disabled) {
+    const state = document.getElementById('ime-upd-state');
+    const btn = document.getElementById('ime-upd-btn');
+    if (state) state.textContent = String(msg || '');
+    if (btn && btnLabel != null) btn.textContent = String(btnLabel);
+    if (btn && typeof disabled === 'boolean') btn.disabled = disabled;
+  }
+
+  let updateCheckBusy = false;
+  let remoteUpdateVersion = '';
+  let remoteUpdateDownloadURL = SCRIPT_DOWNLOAD_URL;
+
+  async function checkForScriptUpdate(manual) {
+    if (updateCheckBusy) return;
+    const ask = !!manual;
+    updateCheckBusy = true;
+    setUpdateWidgetState('Verification...', 'Verification...', true);
+    try {
+      const sep = SCRIPT_META_URL.includes('?') ? '&' : '?';
+      const txt = await gmRequestText({ method: 'GET', url: `${SCRIPT_META_URL}${sep}_=${Date.now()}` });
+      const meta = parseUpdateMeta(txt);
+      remoteUpdateVersion = meta.version;
+      remoteUpdateDownloadURL = meta.downloadURL || SCRIPT_DOWNLOAD_URL;
+      const cmp = compareVersion(meta.version, LOCAL_SCRIPT_VERSION);
+      if (cmp > 0) {
+        setUpdateWidgetState(`Nouvelle v${meta.version}`, `Charger MAJ v${meta.version}`, false);
+        if (ask) {
+          const ok = confirm(`Version ${meta.version} disponible (actuelle ${LOCAL_SCRIPT_VERSION}). Charger la mise a jour maintenant ?`);
+          if (ok) {
+            const dl = remoteUpdateDownloadURL || SCRIPT_DOWNLOAD_URL;
+            try { window.open(dl, '_blank', 'noopener'); }
+            catch (e) { location.href = dl; }
+          }
+        }
+      } else if (cmp === 0) {
+        setUpdateWidgetState(`A jour (v${LOCAL_SCRIPT_VERSION})`, 'Verifier MAJ', false);
+        if (ask) alert(`Aucune mise a jour. Version actuelle: ${LOCAL_SCRIPT_VERSION}.`);
+      } else {
+        setUpdateWidgetState(`Locale v${LOCAL_SCRIPT_VERSION}`, 'Verifier MAJ', false);
+        if (ask) alert(`La version locale (${LOCAL_SCRIPT_VERSION}) est plus recente que la version distante (${meta.version}).`);
+      }
+    } catch (e) {
+      setUpdateWidgetState('Verif impossible', 'Reessayer', false);
+      if (ask) alert(`Verification MAJ impossible: ${e?.message || e}`);
+    } finally {
+      updateCheckBusy = false;
+    }
   }
 
   async function billingDriveGetMeta() {
@@ -3585,6 +3690,11 @@
     style.textContent = `
       #ime-dock{position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:2147483647;display:none;flex-direction:column;align-items:flex-end;gap:8px}
       #ime-prof{font:700 11px/1 Arial,sans-serif;color:#fff;background:#111827;border-radius:999px;padding:6px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+      #ime-upd{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;align-items:center;gap:8px;background:#111827;color:#fff;border-radius:12px;padding:7px 10px;box-shadow:0 8px 18px rgba(0,0,0,.28);font:700 11px/1 Arial,sans-serif}
+      #ime-upd-ver{opacity:.95}
+      #ime-upd-state{opacity:.9;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      #ime-upd-btn{border:none;background:#0ea5e9;color:#fff;border-radius:8px;padding:6px 8px;font:700 11px/1 Arial,sans-serif;cursor:pointer}
+      #ime-upd-btn:disabled{opacity:.7;cursor:default}
       .ime-btn{width:48px;height:48px;border-radius:50%;border:2px solid #fff;color:#fff;cursor:pointer;font-size:21px;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(0,0,0,.28)}
       #ime-b-tr{background:#16a34a}#ime-b-cp{background:#0ea5e9}#ime-b-pt{background:#f59e0b}#ime-b-ai{background:#dc2626}#ime-b-dc{background:#4f46e5}#ime-b-bi{background:#0f766e}#ime-b-or{background:#9333ea}#ime-b-bq{background:#b91c1c}
       #ime-trames,#ime-billing,#ime-ordos{display:none;width:350px;max-height:440px;overflow:auto;background:#fff;border-radius:12px;box-shadow:0 10px 24px rgba(0,0,0,.24);padding:10px}
@@ -3663,6 +3773,15 @@
       <button class="ime-btn" id="ime-b-dc" title="Dernier CR + MAJ">🕘</button>
     `;
     document.body.appendChild(dock);
+
+    const upd = document.createElement('div');
+    upd.id = 'ime-upd';
+    upd.innerHTML = `
+      <span id="ime-upd-ver">v${LOCAL_SCRIPT_VERSION}</span>
+      <span id="ime-upd-state">Verification MAJ...</span>
+      <button id="ime-upd-btn" type="button">Verifier MAJ</button>
+    `;
+    document.body.appendChild(upd);
 
     const overlay = document.createElement('div');
     overlay.id = 'ime-ai-overlay';
@@ -3809,6 +3928,9 @@
       profBtn.style.cursor = 'pointer';
       profBtn.onclick = () => profileBadgeMenu().catch((e) => alert(`Erreur profil: ${e?.message || e}`));
     }
+    const updBtn = document.getElementById('ime-upd-btn');
+    if (updBtn) updBtn.onclick = () => checkForScriptUpdate(true).catch(() => {});
+    setTimeout(() => { checkForScriptUpdate(false).catch(() => {}); }, 1200);
 
     document.getElementById('ime-billing-export').onclick = async () => {
       try {
