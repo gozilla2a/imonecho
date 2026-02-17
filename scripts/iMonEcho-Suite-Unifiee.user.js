@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.3
+// @version      1.3.4
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -55,7 +55,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.3';
+    return '1.3.4';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -3779,7 +3779,7 @@
     upd.id = 'ime-upd';
     upd.innerHTML = `
       <span id="ime-upd-ver">v${LOCAL_SCRIPT_VERSION}</span>
-      <span id="ime-upd-state">Verification MAJ...</span>
+      <span id="ime-upd-state">Clique Verifier MAJ</span>
       <button id="ime-upd-btn" type="button">Verifier MAJ</button>
     `;
     document.body.appendChild(upd);
@@ -3931,7 +3931,6 @@
     }
     const updBtn = document.getElementById('ime-upd-btn');
     if (updBtn) updBtn.onclick = () => checkForScriptUpdate(true).catch(() => {});
-    setTimeout(() => { checkForScriptUpdate(false).catch(() => {}); }, 1200);
 
     document.getElementById('ime-billing-export').onclick = async () => {
       try {
