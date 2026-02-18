@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.11
+// @version      1.3.12
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -67,7 +67,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.11';
+    return '1.3.12';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -1074,6 +1074,11 @@
     const pid = getPatientID();
     if (!pid) return false;
     if (window.self !== window.top) return false;
+    const q = new URLSearchParams(location.search || '');
+    const rq = String(q.get('rq') || '').toLowerCase();
+    const examenId = String(q.get('examen_id') || '').trim();
+    if (rq !== 'examen_modif') return false;
+    if (!examenId) return false;
     const href = String(location.href || '').toLowerCase();
     if (href.includes('popup=true')) return false;
     if (/(courrier|courier|lettre|mailing|mailbox)/i.test(href)) return false;
@@ -3755,7 +3760,10 @@
   }
 
   function hasCR() {
-    if (!/(patient_infos|monecho_exam|openexam|examen|report|cr|compte[-_ ]?rendu|echodoppler|doppler|consultation|imagerie|vascular|cardio)/i.test(location.href)) return false;
+    const q = new URLSearchParams(location.search || '');
+    const rq = String(q.get('rq') || '').toLowerCase();
+    if (rq !== 'examen_modif') return false;
+    if (!String(q.get('examen_id') || '').trim()) return false;
     return !!findCtx();
   }
 
