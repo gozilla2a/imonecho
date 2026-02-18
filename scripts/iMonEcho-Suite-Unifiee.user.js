@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.9
+// @version      1.3.10
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -67,7 +67,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.9';
+    return '1.3.10';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -4208,9 +4208,8 @@
   function refreshDock() {
     const d = document.getElementById('ime-dock');
     if (!d) return;
-    const classic = isClassicPatientPage();
     const onCR = isPatientCRPage();
-    const visible = classic || onCR;
+    const visible = onCR;
     d.style.display = visible ? 'flex' : 'none';
 
     const p = profile();
