@@ -1,15 +1,15 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.6
+// @version      1.3.7
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
 // @match        *://*.monecho.com/*
 // @match        *://imonecho.com/*
 // @match        *://monecho.com/*
-// @updateURL    https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.meta.js
-// @downloadURL  https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.meta.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.user.js
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
@@ -18,6 +18,7 @@
 // @grant        unsafeWindow
 // @connect      api.openai.com
 // @connect      api.github.com
+// @connect      cdn.jsdelivr.net
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
 // @connect      raw.githubusercontent.com
@@ -51,8 +52,9 @@
   const SCRIPT_REPO = 'gozilla2a/imonecho';
   const SCRIPT_META_PATH = 'scripts/iMonEcho-Suite-Unifiee.meta.js';
   const SCRIPT_DOWNLOAD_PATH = 'scripts/iMonEcho-Suite-Unifiee.user.js';
-  const SCRIPT_META_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/main/${SCRIPT_META_PATH}`;
-  const SCRIPT_DOWNLOAD_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/main/${SCRIPT_DOWNLOAD_PATH}`;
+  const SCRIPT_CDN_BASE = `https://cdn.jsdelivr.net/gh/${SCRIPT_REPO}@main`;
+  const SCRIPT_META_URL = `${SCRIPT_CDN_BASE}/${SCRIPT_META_PATH}`;
+  const SCRIPT_DOWNLOAD_URL = `${SCRIPT_CDN_BASE}/${SCRIPT_DOWNLOAD_PATH}`;
   const SCRIPT_COMMIT_API_URL = `https://api.github.com/repos/${SCRIPT_REPO}/commits/main`;
   const CACHE_BYPASS_HEADERS = {
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -64,7 +66,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.6';
+    return '1.3.7';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
