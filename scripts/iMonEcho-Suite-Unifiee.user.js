@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.4
+// @version      1.3.5
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -17,6 +17,7 @@
 // @grant        GM_setValue
 // @grant        unsafeWindow
 // @connect      api.openai.com
+// @connect      api.github.com
 // @connect      script.google.com
 // @connect      script.googleusercontent.com
 // @connect      raw.githubusercontent.com
@@ -47,15 +48,23 @@
   const DRIVE_POLL_MS = 7000;
   const DRIVE_PUSH_DEBOUNCE_MS = 900;
   const USE_LEGACY_SHARED_CHANNELS = false;
-  const SCRIPT_META_URL = 'https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.meta.js';
-  const SCRIPT_DOWNLOAD_URL = 'https://raw.githubusercontent.com/gozilla2a/imonecho/main/scripts/iMonEcho-Suite-Unifiee.user.js';
+  const SCRIPT_REPO = 'gozilla2a/imonecho';
+  const SCRIPT_META_PATH = 'scripts/iMonEcho-Suite-Unifiee.meta.js';
+  const SCRIPT_DOWNLOAD_PATH = 'scripts/iMonEcho-Suite-Unifiee.user.js';
+  const SCRIPT_META_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/main/${SCRIPT_META_PATH}`;
+  const SCRIPT_DOWNLOAD_URL = `https://raw.githubusercontent.com/${SCRIPT_REPO}/main/${SCRIPT_DOWNLOAD_PATH}`;
+  const SCRIPT_COMMIT_API_URL = `https://api.github.com/repos/${SCRIPT_REPO}/commits/main`;
+  const CACHE_BYPASS_HEADERS = {
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    Pragma: 'no-cache'
+  };
   const LOCAL_SCRIPT_VERSION = (() => {
     try {
       if (typeof GM_info !== 'undefined' && GM_info && GM_info.script && GM_info.script.version) {
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.4';
+    return '1.3.5';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -280,6 +289,33 @@
     };
   }
 
+  async function fetchUpdateMetaUncached() {
+    const ts = Date.now();
+    const sep = SCRIPT_META_URL.includes('?') ? '&' : '?';
+    try {
+      return await gmRequestText({
+        method: 'GET',
+        url: `${SCRIPT_META_URL}${sep}_=${ts}`,
+        headers: CACHE_BYPASS_HEADERS
+      });
+    } catch (e1) {
+      const apiSep = SCRIPT_COMMIT_API_URL.includes('?') ? '&' : '?';
+      const apiTxt = await gmRequestText({
+        method: 'GET',
+        url: `${SCRIPT_COMMIT_API_URL}${apiSep}_=${ts}`,
+        headers: Object.assign({ Accept: 'application/vnd.github+json' }, CACHE_BYPASS_HEADERS)
+      });
+      const api = JSON.parse(String(apiTxt || '{}'));
+      const sha = api && api.sha ? String(api.sha).trim() : '';
+      if (!sha) throw new Error(`SHA introuvable (${e1?.message || e1})`);
+      return gmRequestText({
+        method: 'GET',
+        url: `https://raw.githubusercontent.com/${SCRIPT_REPO}/${sha}/${SCRIPT_META_PATH}?_=${ts}`,
+        headers: CACHE_BYPASS_HEADERS
+      });
+    }
+  }
+
   function setUpdateWidgetState(msg, btnLabel, disabled) {
     const state = document.getElementById('ime-upd-state');
     const btn = document.getElementById('ime-upd-btn');
@@ -298,9 +334,9 @@
     updateCheckBusy = true;
     setUpdateWidgetState('Verification...', 'Verification...', true);
     try {
-      const sep = SCRIPT_META_URL.includes('?') ? '&' : '?';
-      const txt = await gmRequestText({ method: 'GET', url: `${SCRIPT_META_URL}${sep}_=${Date.now()}` });
+      const txt = await fetchUpdateMetaUncached();
       const meta = parseUpdateMeta(txt);
+      if (!meta.version || meta.version === '0') throw new Error('Version distante invalide');
       remoteUpdateVersion = meta.version;
       remoteUpdateDownloadURL = meta.downloadURL || SCRIPT_DOWNLOAD_URL;
       const cmp = compareVersion(meta.version, LOCAL_SCRIPT_VERSION);
