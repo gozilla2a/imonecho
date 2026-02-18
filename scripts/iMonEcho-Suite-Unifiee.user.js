@@ -1,14 +1,14 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.7
+// @version      1.3.8
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
 // @match        *://*.monecho.com/*
 // @match        *://imonecho.com/*
 // @match        *://monecho.com/*
-// @updateURL    https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.meta.js
+// @updateURL    https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.user.js
 // @downloadURL  https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.user.js
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
@@ -50,7 +50,7 @@
   const DRIVE_PUSH_DEBOUNCE_MS = 900;
   const USE_LEGACY_SHARED_CHANNELS = false;
   const SCRIPT_REPO = 'gozilla2a/imonecho';
-  const SCRIPT_META_PATH = 'scripts/iMonEcho-Suite-Unifiee.meta.js';
+  const SCRIPT_META_PATH = 'scripts/iMonEcho-Suite-Unifiee.user.js';
   const SCRIPT_DOWNLOAD_PATH = 'scripts/iMonEcho-Suite-Unifiee.user.js';
   const SCRIPT_CDN_BASE = `https://cdn.jsdelivr.net/gh/${SCRIPT_REPO}@main`;
   const SCRIPT_META_URL = `${SCRIPT_CDN_BASE}/${SCRIPT_META_PATH}`;
@@ -66,7 +66,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.7';
+    return '1.3.8';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)

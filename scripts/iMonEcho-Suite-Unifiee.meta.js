@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.7
+// @version      1.3.8
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
 // @match        *://*.monecho.com/*
 // @match        *://imonecho.com/*
 // @match        *://monecho.com/*
-// @updateURL    https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.meta.js
+// @updateURL    https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.user.js
 // @downloadURL  https://cdn.jsdelivr.net/gh/gozilla2a/imonecho@main/scripts/iMonEcho-Suite-Unifiee.user.js
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
