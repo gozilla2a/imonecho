@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.10
+// @version      1.3.11
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -67,7 +67,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.10';
+    return '1.3.11';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -292,6 +292,10 @@
     };
   }
 
+  function buildShaRawUrl(sha, path) {
+    return `https://raw.githubusercontent.com/${SCRIPT_REPO}/${String(sha || '').trim()}/${String(path || '').trim()}`;
+  }
+
   async function fetchUpdateMetaUncached() {
     const ts = Date.now();
     const sep = SCRIPT_META_URL.includes('?') ? '&' : '?';
@@ -308,6 +312,7 @@
 
     let shaTxt = '';
     let shaMeta = null;
+    let shaRef = '';
     try {
       const apiSep = SCRIPT_COMMIT_API_URL.includes('?') ? '&' : '?';
       const apiTxt = await gmRequestText({
@@ -318,9 +323,10 @@
       const api = JSON.parse(String(apiTxt || '{}'));
       const sha = api && api.sha ? String(api.sha).trim() : '';
       if (sha) {
+        shaRef = sha;
         shaTxt = await gmRequestText({
           method: 'GET',
-          url: `https://raw.githubusercontent.com/${SCRIPT_REPO}/${sha}/${SCRIPT_META_PATH}?_=${ts}`,
+          url: `${buildShaRawUrl(sha, SCRIPT_META_PATH)}?_=${ts}`,
           headers: CACHE_BYPASS_HEADERS
         });
         shaMeta = parseUpdateMeta(shaTxt);
@@ -329,10 +335,24 @@
 
     const mainVer = mainMeta && mainMeta.version ? mainMeta.version : '0';
     const shaVer = shaMeta && shaMeta.version ? shaMeta.version : '0';
+    const mainPick = (compareVersion(mainVer, '0') > 0) ? {
+      meta: mainMeta,
+      text: mainTxt,
+      // Keep declared URL when it is valid on main.
+      downloadURL: (mainMeta && mainMeta.downloadURL) ? String(mainMeta.downloadURL).trim() : SCRIPT_DOWNLOAD_URL,
+      source: 'main'
+    } : null;
+    const shaPick = (compareVersion(shaVer, '0') > 0 && shaRef) ? {
+      meta: shaMeta,
+      text: shaTxt,
+      // Force a commit-pinned installer URL to avoid stale branch caches.
+      downloadURL: buildShaRawUrl(shaRef, SCRIPT_DOWNLOAD_PATH),
+      source: `sha:${shaRef}`
+    } : null;
 
-    if (compareVersion(shaVer, mainVer) > 0) return shaTxt;
-    if (compareVersion(mainVer, '0') > 0) return mainTxt;
-    if (compareVersion(shaVer, '0') > 0) return shaTxt;
+    if (shaPick && mainPick && compareVersion(shaVer, mainVer) > 0) return shaPick;
+    if (mainPick) return mainPick;
+    if (shaPick) return shaPick;
     throw new Error('Aucune metadonnee MAJ lisible');
   }
 
@@ -354,11 +374,11 @@
     updateCheckBusy = true;
     setUpdateWidgetState('Verification...', 'Verification...', true);
     try {
-      const txt = await fetchUpdateMetaUncached();
-      const meta = parseUpdateMeta(txt);
+      const picked = await fetchUpdateMetaUncached();
+      const meta = picked && picked.meta ? picked.meta : parseUpdateMeta(picked?.text || '');
       if (!meta.version || meta.version === '0') throw new Error('Version distante invalide');
       remoteUpdateVersion = meta.version;
-      remoteUpdateDownloadURL = meta.downloadURL || SCRIPT_DOWNLOAD_URL;
+      remoteUpdateDownloadURL = (picked && picked.downloadURL) || meta.downloadURL || SCRIPT_DOWNLOAD_URL;
       const cmp = compareVersion(meta.version, LOCAL_SCRIPT_VERSION);
       if (cmp > 0) {
         setUpdateWidgetState(`Nouvelle v${meta.version}`, `Charger MAJ v${meta.version}`, false);
