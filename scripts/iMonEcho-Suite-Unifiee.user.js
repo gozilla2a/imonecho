@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.5
+// @version      1.3.6
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -64,7 +64,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.5';
+    return '1.3.6';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -292,13 +292,20 @@
   async function fetchUpdateMetaUncached() {
     const ts = Date.now();
     const sep = SCRIPT_META_URL.includes('?') ? '&' : '?';
+    let mainTxt = '';
+    let mainMeta = null;
     try {
-      return await gmRequestText({
+      mainTxt = await gmRequestText({
         method: 'GET',
         url: `${SCRIPT_META_URL}${sep}_=${ts}`,
         headers: CACHE_BYPASS_HEADERS
       });
-    } catch (e1) {
+      mainMeta = parseUpdateMeta(mainTxt);
+    } catch (e) {}
+
+    let shaTxt = '';
+    let shaMeta = null;
+    try {
       const apiSep = SCRIPT_COMMIT_API_URL.includes('?') ? '&' : '?';
       const apiTxt = await gmRequestText({
         method: 'GET',
@@ -307,13 +314,23 @@
       });
       const api = JSON.parse(String(apiTxt || '{}'));
       const sha = api && api.sha ? String(api.sha).trim() : '';
-      if (!sha) throw new Error(`SHA introuvable (${e1?.message || e1})`);
-      return gmRequestText({
-        method: 'GET',
-        url: `https://raw.githubusercontent.com/${SCRIPT_REPO}/${sha}/${SCRIPT_META_PATH}?_=${ts}`,
-        headers: CACHE_BYPASS_HEADERS
-      });
-    }
+      if (sha) {
+        shaTxt = await gmRequestText({
+          method: 'GET',
+          url: `https://raw.githubusercontent.com/${SCRIPT_REPO}/${sha}/${SCRIPT_META_PATH}?_=${ts}`,
+          headers: CACHE_BYPASS_HEADERS
+        });
+        shaMeta = parseUpdateMeta(shaTxt);
+      }
+    } catch (e) {}
+
+    const mainVer = mainMeta && mainMeta.version ? mainMeta.version : '0';
+    const shaVer = shaMeta && shaMeta.version ? shaMeta.version : '0';
+
+    if (compareVersion(shaVer, mainVer) > 0) return shaTxt;
+    if (compareVersion(mainVer, '0') > 0) return mainTxt;
+    if (compareVersion(shaVer, '0') > 0) return shaTxt;
+    throw new Error('Aucune metadonnee MAJ lisible');
   }
 
   function setUpdateWidgetState(msg, btnLabel, disabled) {
