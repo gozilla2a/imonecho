@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.17
+// @version      1.3.18
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1101,19 +1101,115 @@
     return hasNewBtn && (hasTable || hasFactureSelect || hasRegBtn);
   }
 
-  function findBillingCtxFromWindow(win) {
+  function listBillingCtxFromWindow(win) {
+    const out = [];
     try {
       const doc = win.document;
-      if (hasBillingUI(doc)) return { win, doc, frame: null };
+      if (hasBillingUI(doc)) out.push({ win, doc, frame: null });
       for (const fr of Array.from(doc.querySelectorAll('iframe'))) {
         try {
           const w = fr.contentWindow;
           const d = fr.contentDocument;
-          if (hasBillingUI(d)) return { win: w, doc: d, frame: fr };
+          if (hasBillingUI(d)) out.push({ win: w, doc: d, frame: fr });
         } catch (e) {}
       }
     } catch (e) {}
-    return null;
+    return out;
+  }
+
+  function isBillingCtxPatientMatch(ctx) {
+    try {
+      const pid = String(getPatientID() || '').trim();
+      if (!pid) return true;
+      const href = String((ctx && ctx.win && ctx.win.location && ctx.win.location.href) || (ctx && ctx.doc && ctx.doc.URL) || '');
+      const m = href.match(/[?&]patient_id=(\d+)/i);
+      if (!m || !m[1]) return true;
+      return String(m[1]) === pid;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function scoreBillingCtx(ctx) {
+    if (!ctx || !ctx.doc || !ctx.win) return -1000;
+    let s = 0;
+    try {
+      if (!hasBillingUI(ctx.doc)) return -1000;
+      const rs = String(ctx.doc.readyState || '').toLowerCase();
+      if (rs !== 'loading') s += 2;
+
+      if (ctx.frame) {
+        const fw = ctx.frame.ownerDocument?.defaultView || window;
+        const fcs = fw.getComputedStyle(ctx.frame);
+        if (fcs.display === 'none' || fcs.visibility === 'hidden' || Number(fcs.opacity) === 0) s -= 12;
+        else s += 7;
+        const fr = ctx.frame.getBoundingClientRect();
+        if (fr.width >= 20 && fr.height >= 20) s += 4;
+        else s -= 6;
+        const host = ctx.frame.closest('#genericModal, .modal, .ui-dialog, [role="dialog"]');
+        if (host) {
+          const vw = host.ownerDocument?.defaultView || window;
+          const cs = vw.getComputedStyle(host);
+          if (cs.display === 'none' || cs.visibility === 'hidden') s -= 8;
+          else s += 3;
+        }
+      } else {
+        s += 1;
+      }
+
+      if (isBillingCtxPatientMatch(ctx)) s += 3;
+      else s -= 20;
+
+      const table = ctx.doc.querySelector('#tablelist');
+      if (table && isElementVisible(table)) s += 2;
+      const chosen = ctx.doc.querySelector("[id^='select_'][id$='_chosen']");
+      if (chosen && isElementVisible(chosen)) s += 1;
+    } catch (e) {
+      s -= 5;
+    }
+    return s;
+  }
+
+  function pickBestBillingCtx(list) {
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.length) return null;
+    let best = null;
+    let bestScore = -1000;
+    for (const ctx of arr) {
+      const sc = scoreBillingCtx(ctx);
+      if (!best || sc > bestScore) {
+        best = ctx;
+        bestScore = sc;
+      }
+    }
+    return best;
+  }
+
+  function findBillingCtxContainingFactureId(win, factureId, fallbackCtx) {
+    const fid = String(factureId || '').trim();
+    if (!fid) return null;
+    const sid = `select_${fid}`;
+    const cands = listBillingCtxFromWindow(win);
+    if (fallbackCtx && hasBillingUI(fallbackCtx.doc)) cands.push(fallbackCtx);
+    let best = null;
+    let bestScore = -1000;
+    for (const ctx of cands) {
+      try {
+        const el = ctx.doc.getElementById(sid);
+        if (!el || !el.isConnected) continue;
+        const sc = scoreBillingCtx(ctx) + 5;
+        if (!best || sc > bestScore) {
+          best = ctx;
+          bestScore = sc;
+        }
+      } catch (e) {}
+    }
+    return best;
+  }
+
+  function findBillingCtxFromWindow(win) {
+    const list = listBillingCtxFromWindow(win);
+    return pickBestBillingCtx(list);
   }
 
   async function getBillingCtx() {
@@ -1200,16 +1296,19 @@
   async function waitForCreatedFactureId(ctx, beforeSet, oldId) {
     const before = beforeSet instanceof Set ? beforeSet : new Set(beforeSet || []);
     const created = await waitFor(() => {
-      const liveCtx = findBillingCtxFromWindow(window);
-      const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
-      if (!useCtx) return null;
-      const now = collectFactureIds(useCtx);
+      const cands = listBillingCtxFromWindow(window).filter((c) => isBillingCtxPatientMatch(c));
+      if (!cands.length && ctx && isBillingCtxPatientMatch(ctx) && hasBillingUI(ctx.doc)) cands.push(ctx);
+      if (!cands.length) return null;
+      const now = new Set();
+      for (const c of cands) for (const id of collectFactureIds(c)) now.add(id);
       const picked = pickCreatedFactureId(now, before, oldId);
       if (picked) return picked;
-      const cur = getFactureId(useCtx);
-      if (cur) {
-        const alt = pickCreatedFactureId([cur], before, oldId);
-        if (alt) return alt;
+      for (const c of cands) {
+        const cur = getFactureId(c);
+        if (cur) {
+          const alt = pickCreatedFactureId([cur], before, oldId);
+          if (alt) return alt;
+        }
       }
       return null;
     }, 22000, 140);
@@ -1219,15 +1318,13 @@
   async function waitForFactureSelectReady(ctx, factureId, timeoutMs) {
     const fid = String(factureId || '').trim();
     if (!fid) return null;
-    const to = typeof timeoutMs === 'number' ? timeoutMs : 12000;
+    const to = typeof timeoutMs === 'number' ? timeoutMs : 18000;
     return await waitFor(() => {
-      const liveCtx = findBillingCtxFromWindow(window);
-      const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
+      const byIdCtx = findBillingCtxContainingFactureId(window, fid, ctx);
+      const useCtx = byIdCtx || (findBillingCtxFromWindow(window) || ctx);
       if (!useCtx) return null;
       const el = useCtx.doc.getElementById(`select_${fid}`);
       if (!el || !el.isConnected) return null;
-      const chosen = useCtx.doc.getElementById(`select_${fid}_chosen`);
-      if (chosen && !isElementVisible(chosen)) return null;
       return { ctx: useCtx, el };
     }, to, 120);
   }
@@ -1785,7 +1882,7 @@
     if (!newId) return alert('Nouvelle facture non detectee. Ouvre facturation puis relance.');
 
     ctx = await waitBillingCtxReady(findBillingCtxFromWindow(window) || ctx, 6000) || ctx;
-    const selectReady = await waitForFactureSelectReady(ctx, newId, 10000);
+    const selectReady = await waitForFactureSelectReady(ctx, newId, 18000);
     if (!selectReady) return alert(`Facture ${newId} creee mais non prete. Ouvre facturation puis relance.`);
     ctx = selectReady.ctx || ctx;
 
