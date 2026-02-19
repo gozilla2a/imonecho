@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.13
+// @version      1.3.14
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -67,7 +67,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.13';
+    return '1.3.14';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -1497,18 +1497,8 @@
     const selectId = resolveSelectId(step.selectTpl, factureId);
     const sel = ctx.doc.getElementById(selectId);
     if (!sel) throw new Error(`Select introuvable: #${selectId}`);
-    const chosen = ctx.doc.getElementById(`${selectId}_chosen`);
-    if (chosen && !isElementVisible(chosen)) {
-      throw new Error(`Facture ${factureId} non visible (select cache).`);
-    }
-    const table = ctx.doc.querySelector('#tablelist');
-    if (table && !isElementVisible(table)) {
-      throw new Error('Table facturation non visible.');
-    }
-    sel.value = step.value;
-    const $ = getJQ(ctx.win);
-    if ($) { $(sel).trigger('chosen:updated'); $(sel).trigger('change'); }
-    else sel.dispatchEvent(new Event('change', { bubbles: true }));
+    // Do not block on chosen/table visibility: some pages keep them hidden while still accepting changes.
+    setBillingFieldValue(ctx, sel, step.value);
     await sleep(90);
   }
 
@@ -1780,18 +1770,18 @@
       return t && t.getBoundingClientRect().height > 0;
     }, 8000, 120);
 
-    ensureFactureSelected(ctx, newId, true);
+    ensureFactureSelected(ctx, newId, false);
     keepInvoiceDetailVisible(ctx, newId);
     const invoiceReady = await waitFor(() => {
       const sel = ctx.doc.getElementById(`select_${newId}`);
       if (!sel) return null;
-      const chosen = ctx.doc.getElementById(`select_${newId}_chosen`);
-      if (chosen && !isElementVisible(chosen)) return null;
-      const table = ctx.doc.querySelector('#tablelist');
-      if (!table || !isElementVisible(table)) return null;
-      return true;
+      if (String(sel.value) !== String(newId)) {
+        ensureFactureSelected(ctx, newId, false);
+        return null;
+      }
+      return sel;
     }, 12000, 140);
-    if (!invoiceReady) return alert('Facture creee mais non active/visible. Ouvre la facturation puis relance.');
+    if (!invoiceReady) return alert('Facture creee mais non active. Ouvre la facturation puis relance.');
 
     const regReady = await ensureReglementReady(ctx, newId);
     if (!regReady) return alert('Nouveau reglement requis avant cotation. Ouvre/regle la facture puis relance le favori.');
@@ -1800,7 +1790,7 @@
       const step = fav.steps[i];
       const ctxReady = await waitBillingCtxReady(ctx, 8000);
       if (!ctxReady) throw new Error('Fenetre facturation non prete/visible.');
-      ensureFactureSelected(ctx, newId, true);
+      ensureFactureSelected(ctx, newId, false);
       keepInvoiceDetailVisible(ctx, newId);
       const beforeLines = collectLineIds(ctx);
       await chosenSelectByValue(ctx, newId, step);
