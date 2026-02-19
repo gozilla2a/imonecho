@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.19
+// @version      1.3.20
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1428,6 +1428,14 @@
     }, to, 120);
   }
 
+  async function waitBillingUiIfBusy(ctx, timeoutMs, quietMs) {
+    const live = findBillingCtxFromWindow(window);
+    const useCtx = (live && isBillingCtxReady(live)) ? live : ctx;
+    if (!useCtx || !isBillingCtxReady(useCtx)) return null;
+    if (!isBillingUiBusy(useCtx)) return useCtx;
+    return await waitBillingUiSettled(useCtx, timeoutMs, quietMs);
+  }
+
   function findBillingSimpleLinkOnPatientPage(doc) {
     if (!doc) return null;
     const byOnclick = Array.from(doc.querySelectorAll('a[onclick],button[onclick]')).find((el) => {
@@ -1708,7 +1716,7 @@
     const $ = getJQ(ctx.win);
     if ($) { $(sel).trigger('chosen:updated'); $(sel).trigger('change'); }
     else sel.dispatchEvent(new Event('change', { bubbles: true }));
-    await sleep(90);
+    await sleep(35);
   }
 
   function getFactureMainSelect(ctx, factureId) {
@@ -1956,7 +1964,7 @@
 
     // Fast path: test immediately, avoid waiting 25s when no billing iframe is open.
     let ctx = findBillingCtxFromWindow(window);
-    ctx = await waitBillingCtxReady(ctx, 1200);
+    ctx = await waitBillingCtxReady(ctx, 220);
     if (!ctx) {
       const opened = openBillingSimpleFromPatientPage();
       if (opened) {
@@ -1966,7 +1974,7 @@
     }
     if (!ctx) return alert('UI facturation introuvable. Ouvre la facturation puis reessaie.');
 
-    ctx = await waitBillingUiSettled(ctx, 22000, 900) || ctx;
+    ctx = await waitBillingUiSettled(ctx, 22000, 300) || ctx;
     if (!ctx) return alert('Facturation pas encore chargee. Reessaie dans 1 seconde.');
 
     const beforeFactureIds = collectFactureIds(ctx);
@@ -1981,7 +1989,7 @@
     const selectReady = await waitForFactureSelectReady(ctx, newId, 18000);
     if (!selectReady) return alert(`Facture ${newId} creee mais non prete. Ouvre facturation puis relance.`);
     ctx = selectReady.ctx || ctx;
-    ctx = await waitBillingUiSettled(ctx, 22000, 900) || ctx;
+    ctx = await waitBillingUiSettled(ctx, 22000, 260) || ctx;
 
     await waitFor(() => {
       const t = ctx.doc.querySelector('#tablelist');
@@ -1995,7 +2003,7 @@
 
     for (let i = 0; i < (fav.steps || []).length; i++) {
       const step = fav.steps[i];
-      ctx = await waitBillingUiSettled(ctx, 12000, 500) || ctx;
+      ctx = await waitBillingUiIfBusy(ctx, 9000, 160) || ctx;
       ensureFactureSelected(ctx, newId, true);
       keepInvoiceDetailVisible(ctx, newId);
       const beforeLines = collectLineIds(ctx);
@@ -2012,13 +2020,13 @@
       }, 5000, 120);
       if (line.anp != null || line.tp != null || line.part != null) {
         applyLineParamsById(ctx, newLineId, line);
-        await sleep(90);
+        await sleep(30);
       }
       keepInvoiceDetailVisible(ctx, newId);
       ensureFactureSelected(ctx, newId, true);
     }
     if (o.closeOnFinish) {
-      await sleep(120);
+      await sleep(60);
       closeBillingPopupOrPanel(ctx);
     }
     return true;
