@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.15
+// @version      1.3.16
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1161,29 +1161,32 @@
     return ids;
   }
 
-  function pickNewestFactureId(ids) {
-    let best = null;
-    for (const id of ids || []) {
-      const n = Number(id);
-      if (!Number.isFinite(n)) continue;
-      if (!best || n > best.n) best = { id: String(id), n };
-    }
-    return best ? best.id : null;
+  async function waitForCreatedFactureId(ctx, beforeSet, oldId) {
+    const before = beforeSet instanceof Set ? beforeSet : new Set(beforeSet || []);
+    const created = await waitFor(() => {
+      const liveCtx = findBillingCtxFromWindow(window);
+      const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
+      if (!useCtx) return null;
+      const now = collectFactureIds(useCtx);
+      for (const id of now) if (!before.has(id)) return String(id);
+      const cur = getFactureId(useCtx);
+      if (cur && cur !== oldId && !before.has(cur)) return String(cur);
+      return null;
+    }, 22000, 140);
+    return created || null;
   }
 
-  async function waitForCreatedFactureId(ctx, beforeSet, oldId) {
-    const created = await waitFor(() => {
-      const now = collectFactureIds(ctx);
-      for (const id of now) if (!beforeSet.has(id)) return String(id);
-      const cur = getFactureId(ctx);
-      if (cur && cur !== oldId && !beforeSet.has(cur)) return String(cur);
-      return null;
-    }, 20000, 140);
-    if (created) return created;
-    const now = collectFactureIds(ctx);
-    const newest = pickNewestFactureId(now);
-    if (newest && newest !== oldId) return newest;
-    return null;
+  async function waitForFactureSelectReady(ctx, factureId, timeoutMs) {
+    const fid = String(factureId || '').trim();
+    if (!fid) return null;
+    const to = typeof timeoutMs === 'number' ? timeoutMs : 12000;
+    return await waitFor(() => {
+      const liveCtx = findBillingCtxFromWindow(window);
+      const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
+      if (!useCtx) return null;
+      const el = useCtx.doc.getElementById(`select_${fid}`);
+      return el ? { ctx: useCtx, el } : null;
+    }, to, 120);
   }
 
   async function waitBillingCtxReady(ctx, timeoutMs) {
@@ -1736,7 +1739,12 @@
     if (!ok) return alert('Impossible de creer une nouvelle facture.');
 
     const newId = await waitForCreatedFactureId(ctx, beforeFactureIds, oldId);
-    if (!newId) return alert('ID facture inchange.');
+    if (!newId) return alert('Nouvelle facture non detectee. Ouvre facturation puis relance.');
+
+    ctx = await waitBillingCtxReady(findBillingCtxFromWindow(window) || ctx, 6000) || ctx;
+    const selectReady = await waitForFactureSelectReady(ctx, newId, 10000);
+    if (!selectReady) return alert(`Facture ${newId} creee mais non prete. Ouvre facturation puis relance.`);
+    ctx = selectReady.ctx || ctx;
 
     await waitFor(() => {
       const t = ctx.doc.querySelector('#tablelist');
