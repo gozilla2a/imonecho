@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.18
+// @version      1.3.19
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1335,6 +1335,99 @@
     return await waitFor(() => (isBillingCtxReady(ctx) ? ctx : null), to, 150);
   }
 
+  function hasPendingAjax(win) {
+    try {
+      const $ = getJQ(win);
+      if ($ && typeof $.active === 'number' && $.active > 0) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function hasVisibleLoadingIndicator(doc) {
+    if (!doc) return false;
+    const selectors = [
+      '#nprogress',
+      '#nprogress .bar',
+      '.nprogress',
+      '.nprogress-bar',
+      '.pace',
+      '.pace-progress',
+      '.ajax-loader',
+      '.loader',
+      '.loading',
+      '.spinner',
+      '[aria-busy="true"]'
+    ];
+    const list = [];
+    try {
+      for (const sel of selectors) {
+        for (const el of Array.from(doc.querySelectorAll(sel))) list.push(el);
+      }
+    } catch (e) {}
+    for (const el of list) {
+      try {
+        if (!isElementVisible(el)) continue;
+        const txt = String(`${el.id || ''} ${el.className || ''}`).toLowerCase();
+        if (!/(load|spinner|progress|pace|nprogress|busy)/i.test(txt) && el.getAttribute('aria-busy') !== 'true') continue;
+        const cs = (el.ownerDocument.defaultView || window).getComputedStyle(el);
+        const zi = Number(cs.zIndex);
+        if (cs.position === 'fixed' || cs.position === 'absolute' || cs.position === 'sticky' || (Number.isFinite(zi) && zi >= 50)) return true;
+        const r = el.getBoundingClientRect();
+        if (r.height <= 12 && r.width >= Math.min(300, (el.ownerDocument.defaultView || window).innerWidth * 0.45)) return true;
+      } catch (e) {}
+    }
+    return false;
+  }
+
+  function isBillingUiBusy(ctx) {
+    if (!ctx) return true;
+    try {
+      if (hasPendingAjax(ctx.win)) return true;
+      if (window.top && hasPendingAjax(window.top)) return true;
+      if (window !== window.top && hasPendingAjax(window)) return true;
+    } catch (e) {}
+    try {
+      if (hasVisibleLoadingIndicator(ctx.doc)) return true;
+      if (ctx.frame && ctx.frame.ownerDocument && hasVisibleLoadingIndicator(ctx.frame.ownerDocument)) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  async function waitBillingUiSettled(ctx, timeoutMs, quietMs) {
+    const to = typeof timeoutMs === 'number' ? timeoutMs : 22000;
+    const q = typeof quietMs === 'number' ? quietMs : 700;
+    let stableAt = 0;
+    return await waitFor(() => {
+      const live = findBillingCtxFromWindow(window);
+      const useCtx = (live && isBillingCtxReady(live)) ? live : ctx;
+      if (!useCtx || !isBillingCtxReady(useCtx)) {
+        stableAt = 0;
+        return null;
+      }
+      const sel = getFactureSelectEl(useCtx);
+      if (!sel || !sel.isConnected) {
+        stableAt = 0;
+        return null;
+      }
+      const table = useCtx.doc.querySelector('#tablelist');
+      if (!table || table.getBoundingClientRect().height <= 0) {
+        stableAt = 0;
+        return null;
+      }
+      if (isBillingUiBusy(useCtx)) {
+        stableAt = 0;
+        return null;
+      }
+      const now = Date.now();
+      if (!stableAt) {
+        stableAt = now;
+        return null;
+      }
+      if (now - stableAt < q) return null;
+      return useCtx;
+    }, to, 120);
+  }
+
   function findBillingSimpleLinkOnPatientPage(doc) {
     if (!doc) return null;
     const byOnclick = Array.from(doc.querySelectorAll('a[onclick],button[onclick]')).find((el) => {
@@ -1873,6 +1966,9 @@
     }
     if (!ctx) return alert('UI facturation introuvable. Ouvre la facturation puis reessaie.');
 
+    ctx = await waitBillingUiSettled(ctx, 22000, 900) || ctx;
+    if (!ctx) return alert('Facturation pas encore chargee. Reessaie dans 1 seconde.');
+
     const beforeFactureIds = collectFactureIds(ctx);
     const oldId = getFactureId(ctx) || '';
     const ok = createNewFacture(ctx);
@@ -1885,6 +1981,7 @@
     const selectReady = await waitForFactureSelectReady(ctx, newId, 18000);
     if (!selectReady) return alert(`Facture ${newId} creee mais non prete. Ouvre facturation puis relance.`);
     ctx = selectReady.ctx || ctx;
+    ctx = await waitBillingUiSettled(ctx, 22000, 900) || ctx;
 
     await waitFor(() => {
       const t = ctx.doc.querySelector('#tablelist');
@@ -1898,6 +1995,7 @@
 
     for (let i = 0; i < (fav.steps || []).length; i++) {
       const step = fav.steps[i];
+      ctx = await waitBillingUiSettled(ctx, 12000, 500) || ctx;
       ensureFactureSelected(ctx, newId, true);
       keepInvoiceDetailVisible(ctx, newId);
       const beforeLines = collectLineIds(ctx);
