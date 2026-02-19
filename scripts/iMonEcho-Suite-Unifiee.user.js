@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.14
+// @version      1.3.15
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -67,7 +67,7 @@
         return String(GM_info.script.version);
       }
     } catch (e) {}
-    return '1.3.14';
+    return '1.3.15';
   })();
 
   // Cloud sync endpoints (repris des scripts qui fonctionnaient)
@@ -1101,47 +1101,17 @@
     return hasNewBtn && (hasTable || hasFactureSelect || hasRegBtn);
   }
 
-  function getBillingVisibleAnchor(doc) {
-    if (!doc) return null;
-    const sels = [
-      '#tablelist',
-      "[id^='select_'][id$='_chosen']",
-      "select[id^='select_']",
-      "button[onclick*='monecho_AddFacture']",
-      "[onclick*='AddFacture']"
-    ];
-    for (const sel of sels) {
-      const els = Array.from(doc.querySelectorAll(sel));
-      for (const el of els) {
-        if (isElementVisible(el)) return el;
-      }
-    }
-    return null;
-  }
-
   function findBillingCtxFromWindow(win) {
     try {
       const doc = win.document;
-      const frameMatches = [];
+      if (hasBillingUI(doc)) return { win, doc, frame: null };
       for (const fr of Array.from(doc.querySelectorAll('iframe'))) {
         try {
           const w = fr.contentWindow;
           const d = fr.contentDocument;
-          if (!hasBillingUI(d)) continue;
-          frameMatches.push({
-            win: w,
-            doc: d,
-            frame: fr,
-            frameVisible: isElementVisible(fr),
-            uiVisible: !!getBillingVisibleAnchor(d)
-          });
+          if (hasBillingUI(d)) return { win: w, doc: d, frame: fr };
         } catch (e) {}
       }
-      const bestVisible = frameMatches.find((x) => x.frameVisible && x.uiVisible);
-      if (bestVisible) return { win: bestVisible.win, doc: bestVisible.doc, frame: bestVisible.frame };
-      const bestFrame = frameMatches.find((x) => x.frameVisible) || frameMatches[0];
-      if (bestFrame) return { win: bestFrame.win, doc: bestFrame.doc, frame: bestFrame.frame };
-      if (hasBillingUI(doc) && getBillingVisibleAnchor(doc)) return { win, doc, frame: null };
     } catch (e) {}
     return null;
   }
@@ -1174,9 +1144,7 @@
         const m = href.match(/[?&]patient_id=(\d+)/i);
         if (m && m[1] && String(m[1]) !== pid) return false;
       }
-      if (!hasBillingUI(ctx.doc)) return false;
-      if (!getBillingVisibleAnchor(ctx.doc)) return false;
-      return true;
+      return hasBillingUI(ctx.doc);
     } catch (e) {
       return false;
     }
@@ -1212,6 +1180,9 @@
       return null;
     }, 20000, 140);
     if (created) return created;
+    const now = collectFactureIds(ctx);
+    const newest = pickNewestFactureId(now);
+    if (newest && newest !== oldId) return newest;
     return null;
   }
 
@@ -1497,8 +1468,10 @@
     const selectId = resolveSelectId(step.selectTpl, factureId);
     const sel = ctx.doc.getElementById(selectId);
     if (!sel) throw new Error(`Select introuvable: #${selectId}`);
-    // Do not block on chosen/table visibility: some pages keep them hidden while still accepting changes.
-    setBillingFieldValue(ctx, sel, step.value);
+    sel.value = step.value;
+    const $ = getJQ(ctx.win);
+    if ($) { $(sel).trigger('chosen:updated'); $(sel).trigger('change'); }
+    else sel.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(90);
   }
 
@@ -1770,32 +1743,19 @@
       return t && t.getBoundingClientRect().height > 0;
     }, 8000, 120);
 
-    ensureFactureSelected(ctx, newId, false);
+    ensureFactureSelected(ctx, newId, true);
     keepInvoiceDetailVisible(ctx, newId);
-    const invoiceReady = await waitFor(() => {
-      const sel = ctx.doc.getElementById(`select_${newId}`);
-      if (!sel) return null;
-      if (String(sel.value) !== String(newId)) {
-        ensureFactureSelected(ctx, newId, false);
-        return null;
-      }
-      return sel;
-    }, 12000, 140);
-    if (!invoiceReady) return alert('Facture creee mais non active. Ouvre la facturation puis relance.');
-
     const regReady = await ensureReglementReady(ctx, newId);
     if (!regReady) return alert('Nouveau reglement requis avant cotation. Ouvre/regle la facture puis relance le favori.');
 
     for (let i = 0; i < (fav.steps || []).length; i++) {
       const step = fav.steps[i];
-      const ctxReady = await waitBillingCtxReady(ctx, 8000);
-      if (!ctxReady) throw new Error('Fenetre facturation non prete/visible.');
-      ensureFactureSelected(ctx, newId, false);
+      ensureFactureSelected(ctx, newId, true);
       keepInvoiceDetailVisible(ctx, newId);
       const beforeLines = collectLineIds(ctx);
       await chosenSelectByValue(ctx, newId, step);
       const newLineId = await waitForNewLineIdFast(ctx, beforeLines, 15000);
-      if (!newLineId) throw new Error(`Aucune nouvelle ligne creee pour la cotation "${step.value}".`);
+      if (!newLineId) continue;
       const line = step.line || {};
       await waitFor(() => {
         const c = getLineControls(ctx, newLineId);
@@ -4654,3 +4614,4 @@ Ex: openai|fr-FR|gpt-4o-mini-transcribe`,
   if (document.readyState === 'complete') init();
   else window.addEventListener('load', init);
 })();
+

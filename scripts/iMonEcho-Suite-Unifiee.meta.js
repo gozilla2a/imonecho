@@ -1,7 +1,7 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.14
+// @version      1.3.15
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -24,3 +24,4 @@
 // @connect      script.googleusercontent.com
 // @connect      raw.githubusercontent.com
 // ==/UserScript==
+
