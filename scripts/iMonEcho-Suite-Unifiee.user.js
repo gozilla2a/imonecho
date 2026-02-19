@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.16
+// @version      1.3.17
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1161,6 +1161,42 @@
     return ids;
   }
 
+  function factureIdToNumber(id) {
+    const s = String(id || '').trim();
+    if (!/^\d+$/.test(s)) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function maxFactureIdNumber(ids) {
+    let best = null;
+    for (const id of ids || []) {
+      const n = factureIdToNumber(id);
+      if (n == null) continue;
+      if (best == null || n > best) best = n;
+    }
+    return best;
+  }
+
+  function pickCreatedFactureId(nowIds, beforeSet, oldId) {
+    const before = beforeSet instanceof Set ? beforeSet : new Set(beforeSet || []);
+    const beforeMax = maxFactureIdNumber(before);
+    const oldNum = factureIdToNumber(oldId);
+    const minNum = Math.max(beforeMax == null ? -Infinity : beforeMax, oldNum == null ? -Infinity : oldNum);
+
+    const candidates = [];
+    for (const id of nowIds || []) {
+      const sid = String(id);
+      if (before.has(sid)) continue;
+      const n = factureIdToNumber(sid);
+      if (Number.isFinite(minNum) && n != null && n <= minNum) continue;
+      candidates.push({ id: sid, n: n == null ? -Infinity : n });
+    }
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.n - a.n);
+    return candidates[0].id;
+  }
+
   async function waitForCreatedFactureId(ctx, beforeSet, oldId) {
     const before = beforeSet instanceof Set ? beforeSet : new Set(beforeSet || []);
     const created = await waitFor(() => {
@@ -1168,9 +1204,13 @@
       const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
       if (!useCtx) return null;
       const now = collectFactureIds(useCtx);
-      for (const id of now) if (!before.has(id)) return String(id);
+      const picked = pickCreatedFactureId(now, before, oldId);
+      if (picked) return picked;
       const cur = getFactureId(useCtx);
-      if (cur && cur !== oldId && !before.has(cur)) return String(cur);
+      if (cur) {
+        const alt = pickCreatedFactureId([cur], before, oldId);
+        if (alt) return alt;
+      }
       return null;
     }, 22000, 140);
     return created || null;
@@ -1185,7 +1225,10 @@
       const useCtx = (liveCtx && isBillingCtxReady(liveCtx)) ? liveCtx : ctx;
       if (!useCtx) return null;
       const el = useCtx.doc.getElementById(`select_${fid}`);
-      return el ? { ctx: useCtx, el } : null;
+      if (!el || !el.isConnected) return null;
+      const chosen = useCtx.doc.getElementById(`select_${fid}_chosen`);
+      if (chosen && !isElementVisible(chosen)) return null;
+      return { ctx: useCtx, el };
     }, to, 120);
   }
 
