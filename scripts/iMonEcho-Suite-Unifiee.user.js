@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.23
+// @version      1.3.24
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1777,27 +1777,25 @@
     };
 
     const initialLineCount = countLines();
-    if (!o.forceAdd && initialLineCount > 0) return true;
+    if (initialLineCount > 0) return true;
 
-    const tries = o.forceAdd ? 3 : 2;
-    let baseline = initialLineCount;
-    for (let i = 0; i < tries; i++) {
-      const fired = triggerAddReglement(ctx, factureId);
-      if (!fired) break;
-      ctx = await waitBillingUiIfBusy(ctx, 12000, 180) || ctx;
-      const ready = await waitFor(() => {
-        const n = countLines();
-        return n > baseline ? n : null;
-      }, 12000, 120);
-      if (ready) return true;
-      baseline = countLines();
-    }
+    // Safety: only one "Nouveau reglement" trigger per call to avoid blank-line floods.
+    const fired = triggerAddReglement(ctx, factureId);
+    if (!fired) return false;
 
+    ctx = await waitBillingUiIfBusy(ctx, 15000, 220) || ctx;
     const ready = await waitFor(() => {
       const n = countLines();
+      return n > initialLineCount ? n : null;
+    }, 15000, 140);
+    if (ready) return true;
+
+    // Fallback: if line appears late, accept any non-zero line count.
+    const late = await waitFor(() => {
+      const n = countLines();
       return n > 0 ? n : null;
-    }, 5000, 120);
-    return !!ready;
+    }, 4000, 140);
+    return !!late;
   }
 
   function scoreField(el, kind) {
@@ -2059,18 +2057,16 @@
       await chosenSelectByValue(ctx, newId, step);
       let newLineId = await waitForNewLineIdFast(ctx, beforeLines, 15000);
       if (!newLineId) {
-        const regForced = await ensureReglementReady(ctx, newId, { forceAdd: true });
-        if (regForced) {
-          ctx = await waitBillingUiIfBusy(ctx, 12000, 160) || ctx;
-          ensureFactureSelected(ctx, newId, true);
-          keepInvoiceDetailVisible(ctx, newId);
-          const beforeRetry = collectLineIds(ctx);
-          await chosenSelectByValue(ctx, newId, step);
-          newLineId = await waitForNewLineIdFast(ctx, beforeRetry, 12000);
-        }
+        // Retry once without creating another reglement line.
+        ctx = await waitBillingUiIfBusy(ctx, 9000, 180) || ctx;
+        ensureFactureSelected(ctx, newId, true);
+        keepInvoiceDetailVisible(ctx, newId);
+        const beforeRetry = collectLineIds(ctx);
+        await chosenSelectByValue(ctx, newId, step);
+        newLineId = await waitForNewLineIdFast(ctx, beforeRetry, 12000);
       }
       if (!newLineId) {
-        alert('Impossible de creer la ligne de cotation (reglement initial absent ou UI non prete).');
+        alert('Impossible de creer la ligne de cotation (UI non prete ou cotation non acceptee).');
         return false;
       }
       const line = step.line || {};
