@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.21
+// @version      1.3.22
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1724,18 +1724,30 @@
     return ctx.doc.getElementById(id) || null;
   }
 
-  function triggerAddReglement(ctx) {
+  function triggerAddReglement(ctx, factureId) {
     try {
       if (typeof ctx.win.monecho_AddReglement === 'function' && ctx.win.document?.formulaire) {
-        ctx.win.monecho_AddReglement(ctx.win.document.formulaire);
-        return true;
+        try {
+          ctx.win.monecho_AddReglement(ctx.win.document.formulaire, String(factureId || ''));
+          return true;
+        } catch (e1) {}
+        try {
+          ctx.win.monecho_AddReglement(ctx.win.document.formulaire);
+          return true;
+        } catch (e2) {}
       }
     } catch (e) {}
     try {
-      const btns = Array.from(ctx.doc.querySelectorAll('button, a, input[type="button"], [role="button"]'));
+      const btns = Array.from(ctx.doc.querySelectorAll('button, a, input[type="button"], [role="button"], [onclick], [title]'));
       const exact = btns.find((el) => {
         const oc = String(el.getAttribute('onclick') || '').toLowerCase();
-        return oc.includes('addreglement') || oc.includes('monecho_addreglement');
+        const id = String(el.id || '').toLowerCase();
+        const cls = String(el.className || '').toLowerCase();
+        const title = String(el.getAttribute('title') || '').toLowerCase();
+        const aria = String(el.getAttribute('aria-label') || '').toLowerCase();
+        const href = String(el.getAttribute('href') || '').toLowerCase();
+        const all = `${oc} ${id} ${cls} ${title} ${aria} ${href}`;
+        return all.includes('addreglement') || all.includes('monecho_addreglement') || all.includes('nouveau reglement') || all.includes('nouveau règlement');
       });
       if (exact) {
         clickBillingEl(ctx, exact);
@@ -1758,25 +1770,32 @@
     ensureFactureSelected(ctx, factureId, true);
     keepInvoiceDetailVisible(ctx, factureId);
 
-    const sel0 = getFactureMainSelect(ctx, factureId);
-    const isReady = (sel) => !!(sel && !sel.disabled && (sel.options || []).length > 1);
-    if (!o.forceAdd && isReady(sel0)) return true;
+    const countLines = () => {
+      ensureFactureSelected(ctx, factureId, true);
+      keepInvoiceDetailVisible(ctx, factureId);
+      return collectLineIds(ctx).size;
+    };
 
-    const tries = o.forceAdd ? 2 : 1;
+    const initialLineCount = countLines();
+    if (!o.forceAdd && initialLineCount > 0) return true;
+
+    const tries = o.forceAdd ? 3 : 2;
+    let baseline = initialLineCount;
     for (let i = 0; i < tries; i++) {
-      const fired = triggerAddReglement(ctx);
+      const fired = triggerAddReglement(ctx, factureId);
       if (!fired) break;
       ctx = await waitBillingUiIfBusy(ctx, 12000, 180) || ctx;
       const ready = await waitFor(() => {
-        const sel = getFactureMainSelect(ctx, factureId);
-        return isReady(sel) ? sel : null;
-      }, 12000, 150);
+        const n = countLines();
+        return n > baseline ? n : null;
+      }, 12000, 120);
       if (ready) return true;
+      baseline = countLines();
     }
 
     const ready = await waitFor(() => {
-      const sel = getFactureMainSelect(ctx, factureId);
-      return isReady(sel) ? sel : null;
+      const n = countLines();
+      return n > 0 ? n : null;
     }, 5000, 120);
     return !!ready;
   }
@@ -2028,7 +2047,7 @@
 
     ensureFactureSelected(ctx, newId, true);
     keepInvoiceDetailVisible(ctx, newId);
-    const regReady = await ensureReglementReady(ctx, newId);
+    const regReady = await ensureReglementReady(ctx, newId, { forceAdd: false });
     if (!regReady) return alert('Nouveau reglement requis avant cotation. Ouvre/regle la facture puis relance le favori.');
 
     for (let i = 0; i < (fav.steps || []).length; i++) {
