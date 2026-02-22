@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.22
+// @version      1.3.23
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1662,8 +1662,8 @@
     const els = root.querySelectorAll("[id^='comptaAnp_'],[id^='comptaANP_']");
     const set = new Set();
     for (const el of els) {
-      const m = (el.id || '').match(/^comptaAnp_(\d+)$/i);
-      if (m) set.add(m[1]);
+      const m = String(el.id || '').match(/^comptaAnp_(.+)$/i);
+      if (m && m[1]) set.add(String(m[1]));
     }
     return set;
   }
@@ -1859,7 +1859,7 @@
 
   function extractLineIdFromTarget(target) {
     const id = String(target && target.id || '');
-    const m1 = id.match(/^comptaAnp_(\d+)$/i);
+    const m1 = id.match(/^comptaAnp_(.+)$/i);
     if (m1) return m1[1];
     const m2 = id.match(/_(\d+)(?:$|_)/);
     if (m2) return m2[1];
