@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         iMonEcho - Suite Unifiee
 // @namespace    http://tampermonkey.net/
-// @version      1.3.20
+// @version      1.3.21
 // @description  Trames + IA + Dernier CR + MAJ dans un seul script avec profils.
 // @author       Dr Sergent & Mathieu
 // @match        *://*.imonecho.com/*
@@ -1724,30 +1724,60 @@
     return ctx.doc.getElementById(id) || null;
   }
 
-  async function ensureReglementReady(ctx, factureId) {
+  function triggerAddReglement(ctx) {
+    try {
+      if (typeof ctx.win.monecho_AddReglement === 'function' && ctx.win.document?.formulaire) {
+        ctx.win.monecho_AddReglement(ctx.win.document.formulaire);
+        return true;
+      }
+    } catch (e) {}
+    try {
+      const btns = Array.from(ctx.doc.querySelectorAll('button, a, input[type="button"], [role="button"]'));
+      const exact = btns.find((el) => {
+        const oc = String(el.getAttribute('onclick') || '').toLowerCase();
+        return oc.includes('addreglement') || oc.includes('monecho_addreglement');
+      });
+      if (exact) {
+        clickBillingEl(ctx, exact);
+        return true;
+      }
+      const byText = btns.find((el) => {
+        const t = String(el.innerText || el.value || el.textContent || '').toLowerCase();
+        return (t.includes('nouveau') && (t.includes('reglement') || t.includes('règlement'))) || t === 'reglement' || t === 'règlement';
+      });
+      if (byText) {
+        clickBillingEl(ctx, byText);
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  async function ensureReglementReady(ctx, factureId, opts) {
+    const o = opts || {};
     ensureFactureSelected(ctx, factureId, true);
     keepInvoiceDetailVisible(ctx, factureId);
 
     const sel0 = getFactureMainSelect(ctx, factureId);
-    if (sel0 && (sel0.options || []).length > 1) return true;
+    const isReady = (sel) => !!(sel && !sel.disabled && (sel.options || []).length > 1);
+    if (!o.forceAdd && isReady(sel0)) return true;
 
-    try {
-      if (typeof ctx.win.monecho_AddReglement === 'function' && ctx.win.document?.formulaire) {
-        ctx.win.monecho_AddReglement(ctx.win.document.formulaire);
-      } else {
-        const btns = Array.from(ctx.doc.querySelectorAll('button, a, input[type="button"], [role="button"]'));
-        const b = btns.find((el) => {
-          const t = String(el.innerText || el.value || el.textContent || '').toLowerCase();
-          return t.includes('reglement') || t.includes('règlement');
-        });
-        if (b) clickBillingEl(ctx, b);
-      }
-    } catch (e) {}
+    const tries = o.forceAdd ? 2 : 1;
+    for (let i = 0; i < tries; i++) {
+      const fired = triggerAddReglement(ctx);
+      if (!fired) break;
+      ctx = await waitBillingUiIfBusy(ctx, 12000, 180) || ctx;
+      const ready = await waitFor(() => {
+        const sel = getFactureMainSelect(ctx, factureId);
+        return isReady(sel) ? sel : null;
+      }, 12000, 150);
+      if (ready) return true;
+    }
 
     const ready = await waitFor(() => {
       const sel = getFactureMainSelect(ctx, factureId);
-      return sel && (sel.options || []).length > 1 ? sel : null;
-    }, 12000, 180);
+      return isReady(sel) ? sel : null;
+    }, 5000, 120);
     return !!ready;
   }
 
@@ -2008,8 +2038,22 @@
       keepInvoiceDetailVisible(ctx, newId);
       const beforeLines = collectLineIds(ctx);
       await chosenSelectByValue(ctx, newId, step);
-      const newLineId = await waitForNewLineIdFast(ctx, beforeLines, 15000);
-      if (!newLineId) continue;
+      let newLineId = await waitForNewLineIdFast(ctx, beforeLines, 15000);
+      if (!newLineId) {
+        const regForced = await ensureReglementReady(ctx, newId, { forceAdd: true });
+        if (regForced) {
+          ctx = await waitBillingUiIfBusy(ctx, 12000, 160) || ctx;
+          ensureFactureSelected(ctx, newId, true);
+          keepInvoiceDetailVisible(ctx, newId);
+          const beforeRetry = collectLineIds(ctx);
+          await chosenSelectByValue(ctx, newId, step);
+          newLineId = await waitForNewLineIdFast(ctx, beforeRetry, 12000);
+        }
+      }
+      if (!newLineId) {
+        alert('Impossible de creer la ligne de cotation (reglement initial absent ou UI non prete).');
+        return false;
+      }
       const line = step.line || {};
       await waitFor(() => {
         const c = getLineControls(ctx, newLineId);
